@@ -1,0 +1,159 @@
+import nltk
+nltk.download('stopwords')
+nltk.download('punkt')
+nltk.download('wordnet')
+import os
+import string
+import logging
+import re
+from collections import defaultdict, Counter
+from nltk.corpus import stopwords
+from nltk.tokenize import word_tokenize
+from nltk.stem import WordNetLemmatizer
+
+# Initialize stopwords and lemmatizer
+STOPWORDS = set(stopwords.words('english'))
+LEMMATIZER = WordNetLemmatizer()
+
+
+def load_text_files(folder_path):
+    """ Reads all .txt files in a folder and returns a dictionary with filenames as keys and content as values. """
+    data = {}
+    doc_id_to_filename = {}
+    doc_id = 0  # Initialize document ID
+    for filename in os.listdir(folder_path):
+        if filename.endswith(".txt"):
+            with open(os.path.join(folder_path, filename), 'r', encoding='utf-8') as file:
+                data[doc_id] = file.read()
+            doc_id_to_filename[doc_id] = filename  # Map doc_id to filename
+            logging.info(f"Loaded file: {filename} with doc_id: {doc_id}")
+            doc_id += 1  # Increment document ID for the next file
+    return data, doc_id_to_filename
+
+folder_path = "/content/drive/MyDrive/Information Retrieval System/Week2/docs"
+data, doc_id_to_filename = load_text_files(folder_path)
+
+
+
+# Text cleaning pipeline
+def clean_text(text):
+    """Cleaning the input text by removing special characters, tokenization, stop word removal, and lemmatization."""
+    text = text.lower()  # Convert to lowercase
+    text = re.sub(r"[^a-zA-Z0-9\s]", "", text)  # Remove special characters
+    tokens = word_tokenize(text)  # Tokenize
+    cleaned_tokens = [LEMMATIZER.lemmatize(word) for word in tokens if word not in STOPWORDS]  # Lemmatize and remove stopwords
+    return cleaned_tokens
+# Test cleaning function with a sample text
+print(clean_text(data[0]))
+
+
+
+def build_inverted_index(data):
+    """Builds an inverted index from the cleaned text data and tracks term frequencies."""
+    inverted_index = defaultdict(set)
+    term_frequencies = Counter()  # Track the frequency of each term
+    for doc_id, content in data.items():
+        cleaned_tokens = clean_text(content)
+        for token in cleaned_tokens:
+            inverted_index[token].add(doc_id)
+            term_frequencies[token] += 1  # Update term frequency
+    return inverted_index, term_frequencies
+
+inverted_index, term_frequencies = build_inverted_index(data)
+
+
+
+
+def boolean_query(query, inverted_index, doc_id_to_filename):
+    """Processes a boolean query using the inverted index and returns the matching document filenames."""
+    query = query.lower()  # Convert query to lowercase
+    tokens = query.split()
+    result_set = set()
+
+    if 'and' in tokens:
+        terms = [term for term in tokens if term not in ['and', 'or', 'not']]
+        for term in terms:
+            if term in inverted_index:
+                if not result_set:
+                    result_set = inverted_index[term]
+                else:
+                    result_set = result_set.intersection(inverted_index[term])
+            else:
+                result_set = set()  # If one term is not found, return an empty set
+
+    elif 'or' in tokens:
+        terms = [term for term in tokens if term not in ['and', 'or', 'not']]
+        for term in terms:
+            if term in inverted_index:
+                if not result_set:
+                    result_set = inverted_index[term]
+                else:
+                    result_set = result_set.union(inverted_index[term])
+
+    elif 'not' in tokens:
+        term = tokens[1]
+        if term in inverted_index:
+            all_docs = set(doc_id_to_filename.keys())  # All document IDs
+            result_set = all_docs - inverted_index[term]
+        else:
+            result_set = set(doc_id_to_filename.keys())  # If term doesn’t exist, return all docs
+
+    else:
+        if query in inverted_index:
+            result_set = inverted_index[query]
+        else:
+            result_set = set()  # If query term doesn’t exist, return empty set
+
+    # Convert doc_ids to filenames
+    result_filenames = [doc_id_to_filename[doc_id] for doc_id in result_set if doc_id in doc_id_to_filename]
+    logging.info(f"Query '{query}' resulted in: {result_filenames}")
+    return result_filenames
+
+
+
+def write_results_to_file(queries, inverted_index, doc_id_to_filename, output_file_path):
+    """Writes the query results to a text file at the specified location."""
+    with open(output_file_path, "w") as result_file:
+        for query in queries:
+            result = boolean_query(query, inverted_index, doc_id_to_filename)
+            result_str = f"Results for '{query}': {result}\n"
+            print(result_str)  # Print to console
+            result_file.write(result_str)  # Write to file
+
+
+
+def main():
+    # Load dataset
+    folder_path = "/content/drive/MyDrive/Information Retrieval System/Week2/docs"
+    data, doc_id_to_filename = load_text_files(folder_path)
+
+    # Build the inverted index and term frequencies
+    inverted_index, term_frequencies = build_inverted_index(data)
+
+    # Example queries
+    queries = [
+        "netflix",
+        "microsoft OR windows",
+        "xbox",
+        "safari AND iosupdate",
+        "windows AND NOT netflix",
+        "spotify AND bluetooth",
+        "apple OR battery",
+        "battery AND drain",
+        "netflix OR xbox",
+        "NOT spotify",
+        "windows OR xbox",
+
+    ]
+
+     # Specifying the output folder path for saving query results
+    output_folder_path = "/content/drive/MyDrive/Information Retrieval System/Week2/docs"
+
+     # Create the output file path
+    output_file_path = os.path.join(output_folder_path, "Prahar_query_results_final.txt")
+
+    # Write query results to the specified output file path
+    write_results_to_file(queries, inverted_index, doc_id_to_filename, output_file_path)
+
+if __name__ == "__main__":
+    main()
